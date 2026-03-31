@@ -1,3 +1,5 @@
+# simple 2-link arm kinematics and collision checking
+
 import math
 import numpy as np
 

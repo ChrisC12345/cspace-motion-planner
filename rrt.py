@@ -1,3 +1,5 @@
+# RRT path planning for 2-link arm in C-space
+
 import numpy as np
 import random
 import math
@@ -32,15 +34,15 @@ def rrt(start, goal, obstacles, max_iter=5000, step_size=0.05):
 
         # step 3: move from nearest node towards point by step_size
         direction = point - nearestNode
+        # take shortest arc in each dimension
+        direction = (direction + math.pi) % (2 * math.pi) - math.pi
         translation = direction / np.linalg.norm(direction) * step_size
         newNode = nearestNode + translation
         newNode = ((newNode + math.pi) % (2 * math.pi)) - math.pi
-        # step 4: if new node is in collision, discard it and continue
-        if not is_collision(newNode[0], newNode[1], obstacles):
+        # step 4: check entire segment, not just endpoint
+        if line_collision_free(tuple(nearestNode), tuple(newNode), obstacles, samples=4):
             nodes.append(newNode)
             parent[tuple(newNode)] = tuple(nearestNode)
-
-        # step 5: if new node is close enough to goal, construct path and return it
             if torus_distance(newNode, goal) < step_size:
                 path = []
                 node = tuple(newNode)
@@ -49,7 +51,33 @@ def rrt(start, goal, obstacles, max_iter=5000, step_size=0.05):
                     node = parent[node]
                 path.reverse()
                 return path
+            
     closest = min(nodes, key=lambda n: torus_distance(n, goal))
     print("closest node to goal:", torus_distance(closest, goal))     
     return None
 
+def line_collision_free(a, b, obstacles, samples=10):
+    a = np.array(a)
+    b = np.array(b)
+    diff = (b - a + math.pi) % (2 * math.pi) - math.pi
+    length = np.linalg.norm(diff)
+    steps = max(10, int(length / 0.01))  # same resolution as interpolation
+    for i in range(steps):
+        t = i / steps
+        config = a + t * diff
+        config = ((config + math.pi) % (2 * math.pi)) - math.pi
+        if is_collision(config[0], config[1], obstacles):
+            return False
+    return True
+
+def smooth_path(path, obstacles, samples=10):
+    # path is a list of (t1, t2) tuples
+    # returns a shorter, smoother path
+    i = 0
+    while i < len(path) - 2:
+        if line_collision_free(path[i], path[i+2], obstacles, samples):
+            path.pop(i+1)  # remove middle point
+            # don't advance i — try skipping again from same position
+        else:
+            i += 1  # can't skip, move forward
+    return path
