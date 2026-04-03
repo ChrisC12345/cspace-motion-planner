@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 from arm import forward_kinematics, is_collision
+from obstacle import Obstacle, ObstacleType
 from rrt import rrt, smooth_path
 from matplotlib.animation import FuncAnimation
 
@@ -46,12 +47,16 @@ def animate_path(path, obstacles, title='path'):
     ax1.grid(True, alpha=0.2)
     
     # draw obstacles once
-    for obs_center, obs_radius in obstacles:
-        circle = plt.Circle(obs_center, obs_radius, color='#D85A30', alpha=0.4)
-        ax1.add_patch(circle)
-
+    for obstacle in obstacles:
+        if obstacle.getType() == ObstacleType.CIRCLE:
+            center, radius = obstacle.getParams()
+            circle = plt.Circle(center, radius, color='#D85A30', alpha=0.4)
+            ax1.add_patch(circle)
+        elif obstacle.getType() == ObstacleType.POLYGON:
+            vertices = obstacle.getParams()
+            polygon = plt.Polygon(vertices, color='#D85A30', alpha=0.4)
+            ax1.add_patch(polygon)
     
-
     # arm lines — initialized empty, updated each frame
     link1, = ax1.plot([], [], 'g-', linewidth=4, solid_capstyle='round')
     link2, = ax1.plot([], [], 'b-', linewidth=3, solid_capstyle='round')
@@ -161,8 +166,9 @@ def is_reachable(grid, start, goal, N=200):
     return False
 
 OBSTACLE = [
-    (np.array([100.0, 0.0]), 10.0),
-    (np.array([-100.0, 0.0]), 10.0)
+    # Obstacle(ObstacleType.CIRCLE, (np.array([100.0, 0.0]), 10.0)),
+    # Obstacle(ObstacleType.CIRCLE, (np.array([-100.0, 0.0]), 10.0))
+    Obstacle(ObstacleType.POLYGON, [np.array([50.0, 50.0]), np.array([70.0, 50.0]), np.array([70.0, 70.0]), np.array([50.0, 70.0])]),
 ]
 
 grid = draw_cspace(OBSTACLE)

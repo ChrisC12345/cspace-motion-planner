@@ -23,7 +23,6 @@ def rrt(start, goal, obstacles, max_iter=5000, step_size=0.05):
         point = np.array((random.uniform(-math.pi, math.pi), random.uniform(-math.pi, math.pi)))
         
         # step 2: find nearest node in tree
-        # hint: np.linalg.norm to measure distance between two configs
         minDist = float('inf')
         nearestNode = start
         for node in nodes:
