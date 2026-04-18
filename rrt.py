@@ -4,22 +4,20 @@ import numpy as np
 import math
 from arm import is_collision_batch
 
-_TWO_PI = 2 * math.pi
-
 
 def _torus_dist_sq(a, nodes):
     """Vectorized squared torus distance from point a to every row in nodes array."""
     diff = np.abs(nodes - a)
-    diff = np.minimum(diff, _TWO_PI - diff)
+    diff = np.minimum(diff, 2 * math.pi - diff)
     return diff[:, 0] ** 2 + diff[:, 1] ** 2
 
 
 def _line_free(a, b, obstacles):
     """Return True if the straight arc a→b in C-space is collision-free."""
-    diff = (b - a + math.pi) % _TWO_PI - math.pi
+    diff = (b - a + math.pi) % (2 * math.pi) - math.pi
     n = max(4, int(np.linalg.norm(diff) / 0.05))
     ts = np.linspace(0, 1, n, endpoint=False)
-    configs = ((a + ts[:, None] * diff) + math.pi) % _TWO_PI - math.pi
+    configs = ((a + ts[:, None] * diff) + math.pi) % (2 * math.pi) - math.pi
     return not np.any(is_collision_batch(configs[:, 0], configs[:, 1], obstacles))
 
 
@@ -45,11 +43,11 @@ def rrt(start, goal, obstacles, max_iter=5000, step_size=0.05):
         nearest = nodes[nearest_idx]
 
         # steer toward sample by step_size
-        direction = (point - nearest + math.pi) % _TWO_PI - math.pi
+        direction = (point - nearest + math.pi) % (2 * math.pi) - math.pi
         norm = math.hypot(direction[0], direction[1])
         if norm < 1e-10:
             continue
-        new_node = ((nearest + direction * (step_size / norm)) + math.pi) % _TWO_PI - math.pi
+        new_node = ((nearest + direction * (step_size / norm)) + math.pi) % (2 * math.pi) - math.pi
 
         if _line_free(nearest, new_node, obstacles):
             nodes[n_nodes] = new_node

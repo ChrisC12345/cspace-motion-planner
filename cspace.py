@@ -6,7 +6,7 @@ import matplotlib.widgets as mwidgets
 import math
 import arm
 from arm import forward_kinematics, is_collision, is_collision_batch
-from obstacle import Obstacle, ObstacleType
+from obstacles import Obstacle, ObstacleType
 from rrt import rrt, smooth_path
 from matplotlib.animation import FuncAnimation
 

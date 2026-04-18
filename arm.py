@@ -2,7 +2,7 @@
 import math
 import numpy as np
 from enum import Enum
-from obstacle import ObstacleType
+from obstacles import ObstacleType
 
 L1 = 80
 L2 = 60
