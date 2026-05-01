@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import matplotlib.widgets as mwidgets
 import math
 import arm
@@ -9,6 +10,8 @@ from arm import forward_kinematics, is_collision, is_collision_batch
 from obstacles import Obstacle, ObstacleType
 from rrt import rrt, smooth_path
 from matplotlib.animation import FuncAnimation
+from simulation import singleJointArmSim, doubleJointArmSim
+from control import PIDController
 
 def draw_cspace(obstacles):
     N = 200
@@ -32,7 +35,37 @@ def interpolate_path(path, resolution=0.05):
     dense_path.append(path[-1])
     return dense_path
 
-def animate_path(path, obstacles, title='path'):
+def simulate_pid(path, Kp=10.0, Ki=0.0, Kd=1.0):
+    """Run PID simulation over path and return list of (t1_sim, t2_sim) configs."""
+    t1_arr = np.array([p[0] for p in path])
+    t2_arr = np.array([p[1] for p in path])
+
+    upperArm = singleJointArmSim()
+    forearm  = singleJointArmSim()
+    sim = doubleJointArmSim(upperArm, forearm)
+    sim.upperArm.setPosition(path[0][0])
+    sim.forearm.setPosition(path[0][1])
+    upperArmPID = PIDController(Kp=Kp, Ki=Ki, Kd=Kd)
+    forearmPID  = PIDController(Kp=Kp, Ki=Ki, Kd=Kd)
+
+    configs = []
+    for i in range(len(path)):
+        fb1 = upperArmPID.compute(sim.upperArm.position, t1_arr[i], sim.upperArm.dt)
+        fb2 = forearmPID.compute(sim.forearm.position,   t2_arr[i], sim.forearm.dt)
+        ff1 = (t1_arr[i] - t1_arr[i-1]) / sim.upperArm.dt if i > 0 else 0.0
+        ff2 = (t2_arr[i] - t2_arr[i-1]) / sim.forearm.dt  if i > 0 else 0.0
+        upperArm.setVoltage(fb1 + ff1)
+        forearm.setVoltage(fb2 + ff2)
+        sim.update()
+        configs.append((sim.upperArm.position, sim.forearm.position))
+    return configs
+
+
+def animate_path(path, rrt_path, obstacles, title='path', use_pid=False):
+    """
+    path:     (t1, t2) setpoint sequence — animated directly or used as PID reference
+    rrt_path: original RRT path drawn as reference in c-space
+    """
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
     fig.suptitle(title, fontsize=16)
 
@@ -43,66 +76,58 @@ def animate_path(path, obstacles, title='path'):
     ax1.set_aspect('equal')
     ax1.set_title('Real World')
     ax1.grid(True, alpha=0.2)
-    
-    # draw obstacles once
+
     for obstacle in obstacles:
         if obstacle.getType() == ObstacleType.CIRCLE:
             center, radius = obstacle.getParams()
-            circle = plt.Circle(center, radius, color='#D85A30', alpha=0.4)
-            ax1.add_patch(circle)
+            ax1.add_patch(plt.Circle(center, radius, color='#D85A30', alpha=0.4))
         elif obstacle.getType() == ObstacleType.POLYGON:
             vertices = obstacle.getParams()
             if len(vertices) >= 3:
-                polygon = plt.Polygon(vertices, color='#D85A30', alpha=0.4)
-                ax1.add_patch(polygon)
+                ax1.add_patch(plt.Polygon(vertices, color='#D85A30', alpha=0.4))
             else:
                 ax1.plot([vertices[0][0], vertices[1][0]], [vertices[0][1], vertices[1][1]],
                          color='#D85A30', linewidth=3, alpha=0.8, solid_capstyle='round')
-    
-    # arm lines — initialized empty, updated each frame
-    link1, = ax1.plot([], [], 'g-', linewidth=4, solid_capstyle='round')
+
+    link1, = ax1.plot([], [], 'm-', linewidth=4, solid_capstyle='round')
     link2, = ax1.plot([], [], 'b-', linewidth=3, solid_capstyle='round')
-    ax1.plot([0], [0], 'ko', markersize=6)          # origin dot — static, never re-drawn
-    elbow_dot, = ax1.plot([], [], 'ko', markersize=6)  # elbow dot — animated
+    ax1.plot([0], [0], 'ko', markersize=6)
+    elbow_dot, = ax1.plot([], [], 'ko', markersize=6)
 
-    start = forward_kinematics(path[0][0], path[0][1])
-    goal  = forward_kinematics(path[-1][0], path[-1][1])
-    ax1.plot([0, start[0][0]], [0, start[0][1]], color='red', linewidth=2, solid_capstyle='round')
-    ax1.plot([start[0][0], start[1][0]], [start[0][1], start[1][1]], color='red', linewidth=2, solid_capstyle='round')
-    ax1.plot([0, goal[0][0]], [0, goal[0][1]], color='yellow', linewidth=2, solid_capstyle='round')
-    ax1.plot([goal[0][0], goal[1][0]], [goal[0][1], goal[1][1]], color='yellow', linewidth=2, solid_capstyle='round')
+    start = forward_kinematics(rrt_path[0][0], rrt_path[0][1])
+    goal  = forward_kinematics(rrt_path[-1][0], rrt_path[-1][1])
+    ax1.plot([0, start[0][0]], [0, start[0][1]], color='red',   linewidth=2, solid_capstyle='round')
+    ax1.plot([start[0][0], start[1][0]], [start[0][1], start[1][1]], color='red',   linewidth=2, solid_capstyle='round')
+    ax1.plot([0, goal[0][0]],  [0, goal[0][1]],  color='green', linewidth=2, solid_capstyle='round')
+    ax1.plot([goal[0][0], goal[1][0]],  [goal[0][1], goal[1][1]],  color='green', linewidth=2, solid_capstyle='round')
 
-    # right plot — c-space
+    # right plot — c-space with rrt_path as reference
+    ax2.set_facecolor('white')
+    cmap = mcolors.ListedColormap(['white', '#D85A30'])
     ax2.imshow(grid, origin='lower',
                extent=[-math.pi, math.pi, -math.pi, math.pi],
-               cmap='RdYlGn_r')
+               cmap=cmap, vmin=0, vmax=1)
     ax2.set_title('Configuration Space')
-    t1s = [p[0] for p in path]
-    t2s = [p[1] for p in path]
-
-    # split path into segments at wraparound points
+    ax2.plot([rrt_path[0][0]], [rrt_path[0][1]], 'ro', markersize=8)
+    ax2.plot([rrt_path[-1][0]], [rrt_path[-1][1]], 'go', markersize=8)
+    rrt_t1s = [p[0] for p in rrt_path]
+    rrt_t2s = [p[1] for p in rrt_path]
     segments_t1 = [[]]
     segments_t2 = [[]]
-    for i in range(len(t1s)):
-        segments_t1[-1].append(t1s[i])
-        segments_t2[-1].append(t2s[i])
-        if i < len(t1s) - 1:
-            if abs(t1s[i+1] - t1s[i]) > math.pi or abs(t2s[i+1] - t2s[i]) > math.pi:
+    for i in range(len(rrt_t1s)):
+        segments_t1[-1].append(rrt_t1s[i])
+        segments_t2[-1].append(rrt_t2s[i])
+        if i < len(rrt_t1s) - 1:
+            if abs(rrt_t1s[i+1] - rrt_t1s[i]) > math.pi or abs(rrt_t2s[i+1] - rrt_t2s[i]) > math.pi:
                 segments_t1.append([])
                 segments_t2.append([])
     for seg_t1, seg_t2 in zip(segments_t1, segments_t2):
-        ax2.plot(seg_t1, seg_t2, 'b-', linewidth=1.5, alpha=0.5)
+        ax2.plot(seg_t1, seg_t2, 'm-', linewidth=1.5, alpha=0.5)
 
-    dot, = ax2.plot([], [], 'wo', markersize=8)
+    dot, = ax2.plot([], [], 'bo', markersize=8)
 
-    # pre-compute all frame data as flat numpy arrays — avoids per-frame Python list creation
-    arm_frames = [forward_kinematics(t1, t2) for t1, t2 in path]
-    elbow_x = np.array([f[0][0] for f in arm_frames])
-    elbow_y = np.array([f[0][1] for f in arm_frames])
-    tip_x   = np.array([f[1][0] for f in arm_frames])
-    tip_y   = np.array([f[1][1] for f in arm_frames])
-    t1_arr  = np.array(t1s)
-    t2_arr  = np.array(t2s)
+    t1_arr = np.array([p[0] for p in path])
+    t2_arr = np.array([p[1] for p in path])
 
     # reusable 2-element buffers — mutated in-place each frame, no allocation
     _l1x = np.array([0.0, 0.0])
@@ -110,19 +135,57 @@ def animate_path(path, obstacles, title='path'):
     _l2x = np.array([0.0, 0.0])
     _l2y = np.array([0.0, 0.0])
 
-    def update(frame):
-        ex = elbow_x[frame];  ey = elbow_y[frame]
+    if use_pid:
+        upperArm = singleJointArmSim()
+        forearm  = singleJointArmSim()
+        sim = doubleJointArmSim(upperArm, forearm)
+        pid1 = PIDController(Kp=10.0, Ki=0.0, Kd=1.0)
+        pid2 = PIDController(Kp=10.0, Ki=0.0, Kd=1.0)
+
+        def _reset_sim():
+            sim.upperArm.setPosition(path[0][0]);  sim.upperArm.velocity = 0.0
+            sim.forearm.setPosition(path[0][1]);   sim.forearm.velocity  = 0.0
+            pid1.reset();  pid2.reset()
+
+        _reset_sim()
+    else:
+        frames = [forward_kinematics(t1, t2) for t1, t2 in path]
+        elbow_x = np.array([f[0][0] for f in frames])
+        elbow_y = np.array([f[0][1] for f in frames])
+        tip_x   = np.array([f[1][0] for f in frames])
+        tip_y   = np.array([f[1][1] for f in frames])
+
+    _step  = [0]
+    paused = [False]
+
+    def update(_):
+        idx = min(_step[0], len(path) - 1)
+        _step[0] += 1
+
+        if use_pid:
+            fb1 = pid1.compute(sim.upperArm.position, t1_arr[idx], sim.upperArm.dt)
+            fb2 = pid2.compute(sim.forearm.position,  t2_arr[idx], sim.forearm.dt)
+            ff1 = (t1_arr[idx] - t1_arr[idx-1]) / sim.upperArm.dt if idx > 0 else 0.0
+            ff2 = (t2_arr[idx] - t2_arr[idx-1]) / sim.forearm.dt  if idx > 0 else 0.0
+            upperArm.setVoltage(fb1 + ff1)
+            forearm.setVoltage(fb2 + ff2)
+            sim.update()
+            fk = forward_kinematics(sim.upperArm.position, sim.forearm.position)
+            ex, ey = fk[0];  tx, ty = fk[1]
+            t1_dot, t2_dot = sim.upperArm.position, sim.forearm.position
+        else:
+            ex, ey = elbow_x[idx], elbow_y[idx]
+            tx, ty = tip_x[idx],   tip_y[idx]
+            t1_dot, t2_dot = t1_arr[idx], t2_arr[idx]
+
         _l1x[1] = ex;  _l1y[1] = ey
-        _l2x[0] = ex;  _l2x[1] = tip_x[frame]
-        _l2y[0] = ey;  _l2y[1] = tip_y[frame]
+        _l2x[0] = ex;  _l2x[1] = tx
+        _l2y[0] = ey;  _l2y[1] = ty
         link1.set_data(_l1x, _l1y)
         link2.set_data(_l2x, _l2y)
-        elbow_dot.set_data(_l1x[1:], _l1y[1:])
-        dot.set_data(t1_arr[frame:frame+1], t2_arr[frame:frame+1])
+        elbow_dot.set_data([ex], [ey])
+        dot.set_data([t1_dot], [t2_dot])
         return link1, link2, elbow_dot, dot
-    
-    frame = [0]
-    paused = [False]
 
     def on_key(event):
         if event.key == ' ':
@@ -132,21 +195,35 @@ def animate_path(path, obstacles, title='path'):
                 ani.pause()
             paused[0] = not paused[0]
         elif event.key == 'right' and paused[0]:
-            frame[0] = min(frame[0] + 1, len(path) - 1)
-            update(frame[0])
-            fig.canvas.draw()
+            update(None);  fig.canvas.draw()
         elif event.key == 'left' and paused[0]:
-            frame[0] = max(frame[0] - 1, 0)
-            update(frame[0])
-            fig.canvas.draw()
+            _step[0] = max(_step[0] - 2, 0)
+            update(None);  fig.canvas.draw()
 
     fig.canvas.mpl_connect('key_press_event', on_key)
 
-    # inside animate_path — remove fig.canvas.draw_idle() from update(), then:
-    ani = FuncAnimation(fig, update, frames=len(path),
-                        interval=20, blit=True, repeat=True,
+    ani = FuncAnimation(fig, update, frames=None,
+                        interval=20, blit=True,
                         cache_frame_data=False)
+
     plt.tight_layout()
+    fig.subplots_adjust(bottom=0.1)
+    ax_btn = fig.add_axes([0.45, 0.02, 0.12, 0.05])
+    btn_reset = mwidgets.Button(ax_btn, 'Reset')
+
+    def on_reset(_):
+        _step[0] = 0
+        if use_pid:
+            _reset_sim()
+        if paused[0]:
+            paused[0] = False
+            ani.resume()
+
+    btn_reset.on_clicked(on_reset)
+
+    # prevent garbage collection — FuncAnimation and Button are local vars
+    fig._anim = ani
+    fig._btn  = btn_reset
 
 def is_reachable(grid, start, goal, N=200):
     # convert configs to grid indices
@@ -352,12 +429,14 @@ plt.show()
 grid = draw_cspace(OBSTACLE)
 
 fig, ax = plt.subplots(figsize=(6, 6))
+ax.set_facecolor('white')
+cmap = mcolors.ListedColormap(['white', '#D85A30'])
 ax.imshow(grid, origin='lower',
           extent=[-math.pi, math.pi, -math.pi, math.pi],
-          cmap='RdYlGn_r')
+          cmap=cmap, vmin=0, vmax=1)
 ax.set_xlabel('θ₁')
 ax.set_ylabel('θ₂')
-ax.set_title('click start (green) then goal (blue), press Enter to plan')
+ax.set_title('click start then goal')
 
 clicks = []
 markers = []
@@ -366,7 +445,7 @@ def on_click(event):
     if event.inaxes != ax or len(clicks) >= 2:
         return
     clicks.append(np.array([event.xdata, event.ydata]))
-    color = 'go' if len(clicks) == 1 else 'b*'
+    color = 'ro' if len(clicks) == 1 else 'go'
     marker, = ax.plot(event.xdata, event.ydata, color, markersize=12)
     markers.append(marker)
     fig.canvas.draw()
@@ -399,7 +478,10 @@ else:
             print("path length before smoothing:", len(path))
             smoothed = smooth_path(path.copy(), OBSTACLE, samples=4)
             print("path length after smoothing:", len(smoothed))
-            animate_path(interpolate_path(path), OBSTACLE, title='raw RRT')
-            animate_path(interpolate_path(smoothed), OBSTACLE, title='smoothed + interpolated')
+            interp_path     = interpolate_path(path)
+            interp_smoothed = interpolate_path(smoothed)
+            # animate_path(interp_path,     interp_path,     OBSTACLE, title='raw RRT')
+            # animate_path(interp_smoothed, interp_smoothed, OBSTACLE, title='smoothed')
+            animate_path(interp_smoothed, interp_smoothed, OBSTACLE, title='smoothed — PID', use_pid=True)
 
 plt.show()

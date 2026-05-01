@@ -46,6 +46,9 @@ class singleJointArmSim:
         self.position = position
         self.endpoint = (self.length * math.cos(self.position), 
                          self.length * math.sin(self.position))
+    
+    def setVoltage(self, voltage):
+        self.voltage = voltage
 
     def updateTorque(self, torque):
         self.torque = torque
@@ -55,8 +58,7 @@ class singleJointArmSim:
         self.endpoint = (self.length * math.cos(self.position), 
                          self.length * math.sin(self.position))
 
-    def updateVoltage(self, voltage, externalTorque):
-        self.voltage = voltage
+    def updateVoltage(self, externalTorque):
         if self.motorPowered:
             self.current = (self.voltage - self.kE * self.velocity) / self.resistance
         else:
@@ -70,9 +72,6 @@ class doubleJointArmSim:
 
     upperArm = singleJointArmSim()
     forearm = singleJointArmSim()
-
-    elbow = (0.0, 0.0); # (x,y) position of the elbow in m, relative to shoulder joint
-    tip = (0.0, 0.0); # (x,y) position of the tip in m, relative to shoulder joint
 
     g = -9.81; # gravity in m/s^2
 
@@ -131,8 +130,8 @@ class doubleJointArmSim:
 
     def update(self):
         externalTorques = self.calculateExternalTorques()
-        self.upperArm.updateVoltage(self.upperArm.voltage, externalTorques[0])
-        self.forearm.updateVoltage(self.forearm.voltage, externalTorques[1])
+        self.upperArm.updateVoltage(externalTorques[0])
+        self.forearm.updateVoltage(externalTorques[1])
 
 
 def animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.0, w1_init=0.0, w2_init=0.0):
@@ -144,8 +143,8 @@ def animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.0, w1_init=0.0, w2_init=0.
     t2_init:  initial forearm angle relative to upper arm in radians
     w1_init, w2_init: initial angular velocities in rad/s
     """
-    arm.upperArm.setMotorPowered(False)
-    arm.forearm.setMotorPowered(False)
+    arm.upperArm.setMotorPowered(True)
+    arm.forearm.setMotorPowered(True)
     arm.upperArm.setPosition(t1_init)
     arm.upperArm.velocity = w1_init
     arm.forearm.setPosition(t2_init)
@@ -163,10 +162,14 @@ def animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.0, w1_init=0.0, w2_init=0.
     ax.grid(True, alpha=0.3)
     ax.plot(0, 0, 'ko', markersize=8)  # shoulder (fixed)
 
-    link1,     = ax.plot([], [], 'g-', linewidth=4, solid_capstyle='round')
+    link1,     = ax.plot([], [], 'm-', linewidth=4, solid_capstyle='round')
     link2,     = ax.plot([], [], 'b-', linewidth=3, solid_capstyle='round')
     elbow_dot, = ax.plot([], [], 'ko', markersize=6)
     time_text  = ax.text(0.02, 0.95, '', transform=ax.transAxes, fontsize=10)
+
+    tip_x = []
+    tip_y = []
+    trace, = ax.plot([], [], 'r-', alpha=0.5, linewidth=1)
 
     t_elapsed = [0.0]
 
@@ -181,9 +184,12 @@ def animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.0, w1_init=0.0, w2_init=0.
         link1.set_data([0, ex], [0, ey])
         link2.set_data([ex, tx], [ey, ty])
         elbow_dot.set_data([ex], [ey])
+        tip_x.append(tx)
+        tip_y.append(ty)
+        trace.set_data(tip_x, tip_y)
         t_elapsed[0] += dt
         time_text.set_text(f't = {t_elapsed[0]:.2f} s')
-        return link1, link2, elbow_dot, time_text
+        return link1, link2, elbow_dot, time_text, trace
 
     ani = animation.FuncAnimation(fig, draw_frame, frames=None,
                                   interval=dt * 1000, blit=True,
