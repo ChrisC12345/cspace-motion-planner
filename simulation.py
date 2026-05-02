@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 
-class singleJointArmSim:
+class SingleJointArmSim:
     """simulates a single joint arm with a motor at the joint"""
     mass = 0.0; # mass of the arm in kg
     length = 0.0; # length of the single segmentarm in m
@@ -11,6 +11,7 @@ class singleJointArmSim:
     moi = 0.0; # moment of inertia of the arm about the joint in kg*m^2
     kE = 0.0; # back-emf constant of the motor in V/(rad/s)
     resistance = 0.0; # resistance of the motor in ohms
+    nominalVoltage = 0.0; # maximum voltage that can be applied to the motor in volts
 
     position = 0.0; # angle of the arm in radians relative to motor, ccw pos
     velocity = 0.0; # angular velocity of the arm in radians/s, ccw pos
@@ -25,18 +26,20 @@ class singleJointArmSim:
     motorPowered = True;
 
     def __init__(self, mass = 1, 
-                 distCOM = 0.25, 
-                 length = 0.5, 
-                 moi = 0.25, 
+                 length = 0.25, 
+                 distCOM = None,
+                 moi = None, 
                  kE = 0.02, 
-                 resistance = 0.02, 
+                 resistance = 0.03, 
+                 nominalVoltage = 12.0,
                  dt = 0.02):
         self.mass = mass
-        self.distCOM = distCOM
         self.length = length
-        self.moi = moi
+        self.distCOM = distCOM if distCOM is not None else length / 2
+        self.moi = moi if moi is not None else mass * (length ** 2) / 3
         self.kE = kE
         self.resistance = resistance
+        self.nominalVoltage = nominalVoltage
         self.dt = dt
 
     def setMotorPowered(self, motorPowered):
@@ -48,7 +51,7 @@ class singleJointArmSim:
                          self.length * math.sin(self.position))
     
     def setVoltage(self, voltage):
-        self.voltage = voltage
+        self.voltage = max(-self.nominalVoltage, min(self.nominalVoltage, voltage))
 
     def updateTorque(self, torque):
         self.torque = torque
@@ -58,7 +61,7 @@ class singleJointArmSim:
         self.endpoint = (self.length * math.cos(self.position), 
                          self.length * math.sin(self.position))
 
-    def updateVoltage(self, externalTorque):
+    def update(self, externalTorque):
         if self.motorPowered:
             self.current = (self.voltage - self.kE * self.velocity) / self.resistance
         else:
@@ -66,12 +69,12 @@ class singleJointArmSim:
         self.torque = self.kE * self.current + externalTorque
         self.updateTorque(self.torque)
 
-class doubleJointArmSim:
+class DoubleJointArmSim:
     """simulates a double joint arm with motors at both joints, 
     the second joint is at the end of the first segment"""
 
-    upperArm = singleJointArmSim()
-    forearm = singleJointArmSim()
+    upperArm = SingleJointArmSim()
+    forearm = SingleJointArmSim()
 
     g = -9.81; # gravity in m/s^2
 
@@ -130,8 +133,8 @@ class doubleJointArmSim:
 
     def update(self):
         externalTorques = self.calculateExternalTorques()
-        self.upperArm.updateVoltage(externalTorques[0])
-        self.forearm.updateVoltage(externalTorques[1])
+        self.upperArm.update(externalTorques[0])
+        self.forearm.update(externalTorques[1])
 
 
 def animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.0, w1_init=0.0, w2_init=0.0):
@@ -199,7 +202,7 @@ def animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.0, w1_init=0.0, w2_init=0.
     return ani
 
 if __name__ == '__main__':
-    upperArm = singleJointArmSim()
-    forearm  = singleJointArmSim()
-    arm = doubleJointArmSim(upperArm, forearm)
+    upperArm = SingleJointArmSim()
+    forearm  = SingleJointArmSim()
+    arm = DoubleJointArmSim(upperArm, forearm)
     ani = animateFreeFall(arm, t1_init=math.pi/2, t2_init=0.5)

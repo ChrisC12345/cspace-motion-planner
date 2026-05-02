@@ -4,7 +4,6 @@ import numpy as np
 import math
 from arm import is_collision_batch
 
-
 def _torus_dist_sq(a, nodes):
     """Vectorized squared torus distance from point a to every row in nodes array."""
     diff = np.abs(nodes - a)
@@ -76,3 +75,19 @@ def smooth_path(path, obstacles, samples=10):
         else:
             i += 1
     return [tuple(p) for p in path]
+
+def interpolate_path(path, resolution=0.05):
+    dense_path = []
+    for i in range(len(path) - 1):
+        a = np.array(path[i])
+        b = np.array(path[i+1])
+        diff = (b - a + math.pi) % (2 * math.pi) - math.pi  # shortest arc
+        length = np.linalg.norm(diff)
+        steps = max(2, int(length / resolution))
+        for t in range(steps):
+            config = a + (t / steps) * diff
+            # wrap back into [-pi, pi]
+            config = ((config + math.pi) % (2 * math.pi)) - math.pi
+            dense_path.append(tuple(config))
+    dense_path.append(path[-1])
+    return dense_path

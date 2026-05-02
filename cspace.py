@@ -10,7 +10,7 @@ from arm import forward_kinematics, is_collision, is_collision_batch
 from obstacles import Obstacle, ObstacleType
 from rrt import rrt, smooth_path
 from matplotlib.animation import FuncAnimation
-from simulation import singleJointArmSim, doubleJointArmSim
+from simulation import SingleJointArmSim, DoubleJointArmSim
 from control import PIDController
 
 def draw_cspace(obstacles):
@@ -40,9 +40,9 @@ def simulate_pid(path, Kp=10.0, Ki=0.0, Kd=1.0):
     t1_arr = np.array([p[0] for p in path])
     t2_arr = np.array([p[1] for p in path])
 
-    upperArm = singleJointArmSim()
-    forearm  = singleJointArmSim()
-    sim = doubleJointArmSim(upperArm, forearm)
+    upperArm = SingleJointArmSim()
+    forearm  = SingleJointArmSim()
+    sim = DoubleJointArmSim(upperArm, forearm)
     sim.upperArm.setPosition(path[0][0])
     sim.forearm.setPosition(path[0][1])
     upperArmPID = PIDController(Kp=Kp, Ki=Ki, Kd=Kd)
@@ -136,9 +136,11 @@ def animate_path(path, rrt_path, obstacles, title='path', use_pid=False):
     _l2y = np.array([0.0, 0.0])
 
     if use_pid:
-        upperArm = singleJointArmSim()
-        forearm  = singleJointArmSim()
-        sim = doubleJointArmSim(upperArm, forearm)
+        upperArm = SingleJointArmSim()
+        forearm  = SingleJointArmSim()
+        sim = DoubleJointArmSim(upperArm, forearm)
+        upperArm.setMotorPowered(True)
+        forearm.setMotorPowered(True)
         pid1 = PIDController(Kp=10.0, Ki=0.0, Kd=1.0)
         pid2 = PIDController(Kp=10.0, Ki=0.0, Kd=1.0)
 
@@ -165,8 +167,8 @@ def animate_path(path, rrt_path, obstacles, title='path', use_pid=False):
         if use_pid:
             fb1 = pid1.compute(sim.upperArm.position, t1_arr[idx], sim.upperArm.dt)
             fb2 = pid2.compute(sim.forearm.position,  t2_arr[idx], sim.forearm.dt)
-            ff1 = (t1_arr[idx] - t1_arr[idx-1]) / sim.upperArm.dt if idx > 0 else 0.0
-            ff2 = (t2_arr[idx] - t2_arr[idx-1]) / sim.forearm.dt  if idx > 0 else 0.0
+            ff1 = (t1_arr[idx] - t1_arr[idx-1]) / sim.upperArm.dt if idx > 0 and idx < len(t1_arr)-1 else 0.0
+            ff2 = (t2_arr[idx] - t2_arr[idx-1]) / sim.forearm.dt  if idx > 0 and idx < len(t2_arr)-1 else 0.0
             upperArm.setVoltage(fb1 + ff1)
             forearm.setVoltage(fb2 + ff2)
             sim.update()
